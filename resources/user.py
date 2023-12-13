@@ -3,36 +3,58 @@ from flask_smorest import Blueprint, abort
 from passlib.hash import pbkdf2_sha256 # Hashing Algorithm
 from flask_jwt_extended import create_access_token,create_refresh_token,get_jwt,get_jwt_identity,jwt_required
 
+import requests
 
 from db import db
 from models.user import UserModel
-from schema import UserSchema
+from schema import UserSchema, UserRegisterSchema
 
 from blocklist import BLOCKLIST
 
-
+import os
+                
 blp = Blueprint("Users", "users", description="Operations on users")
+
+
+def send_simple_message(to,subject,body):
+    domain = os.getenv("MAILGUN_DOMAIN")
+    
+    return requests.post(
+        f"https://api.mailgun.net/v3/{domain}/messages",
+        auth=("api", os.getenv("MAILGUN_API_KEY")),
+        data={"from": f"Store API <mailgun@{domain}>",
+            "to": [to],
+            "subject": subject,
+            "text": body
+        })
 
 
 @blp.route("/register")
 class UserRegister(MethodView):
-    @blp.arguments(UserSchema)
+    @blp.arguments(UserRegisterSchema)
     def post(self, user_data):
         
-        getData = UserModel.query.filter_by(username = user_data["username"]).first()
+        getData = UserModel.query.filter_by(useremail= user_data["useremail"]).first()
         
         if getData:
-           abort(409, message="A user with that username already exists.")
+           abort(409, message="A user with that useremail already exists.")
 
         # if UserModel.query.filter(UserModel.username == user_data["username"]).first():
         
         username=user_data["username"]
+        useremail = user_data["useremail"]
         password=pbkdf2_sha256.hash(user_data["password"]) # hashing the Password
 
-        user = UserModel(username=username,password=password)
+        user = UserModel(username=username,useremail=useremail,password=password)
 
         db.session.add(user)
         db.session.commit()
+        
+        send_simple_message(
+            to=user.useremail,
+            subject="Successfully signed up",
+            body=f"Hi {user.username}! You have successfully signed up to the Stores REST API."
+        )
 
         return {"message": "User created successfully."}, 201
     
